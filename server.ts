@@ -3,9 +3,25 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 
+if (import.meta.dirname && process.cwd() !== import.meta.dirname) {
+  try {
+    process.chdir(import.meta.dirname);
+  } catch (err) {
+    // Ignore chdir error
+  }
+}
+
+if (typeof process.loadEnvFile === "function") {
+  try {
+    process.loadEnvFile();
+  } catch (err) {
+    // .env not found or unreadable
+  }
+}
+
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3001;
 
   app.use(express.json({ limit: "50mb" }));
 
@@ -25,9 +41,9 @@ async function startServer() {
           }
         });
       } catch (e: any) {
-        // Fallback to 2.5-flash if 3.6-flash fails or quota error
+        // Fallback to 3.5-flash-lite if 3.6-flash fails or quota error
         response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
+          model: 'gemini-3.5-flash-lite',
           contents: prompt,
           config: {
             systemInstruction: customSystemInstruction,
@@ -97,7 +113,9 @@ async function startServer() {
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
+    const rootDir = import.meta.dirname || process.cwd();
     const vite = await createViteServer({
+      root: rootDir,
       server: { middlewareMode: true },
       appType: "spa",
     });
