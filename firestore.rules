@@ -7,28 +7,47 @@ service cloud.firestore {
     // ===============================================================
     //
     // Collection: users
-    // Document ID: userId
+    // Document ID: userId (cryptographically bound to request.auth.uid)
     // Fields:
-    //   - email: string (required)
-    //   - role: string (required, 'admin' or 'user')
+    //   - email: string (required, max 254 chars, bound to request.auth.token.email on create)
+    //   - role: string (required, enum ['admin', 'user'])
     //   - createdAt: timestamp (required, immutable)
     //
     // Collection: projects
     // Document ID: projectId
     // Fields:
-    //   - title: string (required)
-    //   - description: string (required)
-    //   - status: string (required, 'Active' or 'In-Progress' or 'Archived')
-    //   - ownerId: string (required, immutable)
+    //   - title: string (required, 1-100 chars)
+    //   - description: string (required, 0-1000 chars)
+    //   - status: string (required, enum ['Active', 'In-Progress', 'Archived'])
+    //   - ownerId: string (required, 1-128 chars, bound to request.auth.uid, immutable)
     //   - createdAt: timestamp (required, immutable)
     //
     // Collection: vessels
     // Document ID: vesselId
     // Fields:
-    //   - name: string (required)
-    //   - type: string (required)
-    //   - projectId: string (required)
-    //   - ownerId: string (required, immutable)
+    //   - name: string (required, 1-100 chars)
+    //   - type: string (required, 1-50 chars)
+    //   - projectId: string (required, 1-100 chars, immutable)
+    //   - ownerId: string (required, 1-128 chars, bound to request.auth.uid, immutable)
+    //   - createdAt: timestamp (required, immutable)
+    //
+    // Collection: ledger_entries
+    // Document ID: entryId
+    // Fields:
+    //   - id: string (required, 1-64 chars)
+    //   - blockHeight: int (required, positive)
+    //   - hash: string (required, 1-128 chars)
+    //   - previousHash: string (required, 1-128 chars)
+    //   - timestamp: string (required, 1-64 chars)
+    //   - node: string (required, enum)
+    //   - vessel: string (required, enum)
+    //   - eventType: string (required, enum)
+    //   - title: string (required, 1-200 chars)
+    //   - details: string (required, 0-5000 chars)
+    //   - coherence: number (required, 0-100)
+    //   - entropy: number (required, 0-100)
+    //   - signature: string (required, 1-128 chars)
+    //   - ownerId: string (required, 1-128 chars, bound to request.auth.uid)
     //   - createdAt: timestamp (required, immutable)
     //
     // ===============================================================
@@ -48,25 +67,42 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == resource.data.ownerId;
     }
 
-    function isAdmin() {
+    function isBootstrapAdmin() {
       return isAuthenticated() &&
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
-          (request.auth.token.email == "emergenceofone@gmail.com" && request.auth.token.email_verified == true));
+        request.auth.token.email == "emergenceofone@gmail.com" &&
+        request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        isBootstrapAdmin() ||
+        request.auth.token.get('admin', false) == true ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
     }
 
     function hasOnlyAllowedFields(fields) {
       return request.resource.data.keys().hasOnly(fields);
     }
 
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
     function isValidEmail(email) {
-      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+      return email is string &&
+        email.size() > 0 &&
+        email.size() <= 254 &&
+        email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
     }
 
     // ===============================================================
-    // Domain Validators
+    // Domain Validators (Pillars of Profile & Data Security)
     // ===============================================================
     function isValidUser(data) {
       return hasOnlyAllowedFields(['email', 'role', 'createdAt']) &&
+             hasRequiredFields(['email', 'role', 'createdAt']) &&
              isValidEmail(data.email) &&
              data.role in ['admin', 'user'] &&
              data.createdAt is timestamp;
@@ -74,54 +110,127 @@ service cloud.firestore {
 
     function isValidProject(data) {
       return hasOnlyAllowedFields(['title', 'description', 'status', 'ownerId', 'createdAt']) &&
+             hasRequiredFields(['title', 'description', 'status', 'ownerId', 'createdAt']) &&
              data.title is string && data.title.size() > 0 && data.title.size() <= 100 &&
              data.description is string && data.description.size() <= 1000 &&
-             data.status is string && data.status in ['Active', 'In-Progress', 'Archived'] &&
-             data.ownerId is string && data.ownerId.size() > 0 &&
+             data.status in ['Active', 'In-Progress', 'Archived'] &&
+             data.ownerId is string && data.ownerId.size() > 0 && data.ownerId.size() <= 128 &&
              data.createdAt is timestamp;
     }
 
     function isValidVessel(data) {
       return hasOnlyAllowedFields(['name', 'type', 'projectId', 'ownerId', 'createdAt']) &&
+             hasRequiredFields(['name', 'type', 'projectId', 'ownerId', 'createdAt']) &&
              data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
              data.type is string && data.type.size() > 0 && data.type.size() <= 50 &&
-             data.projectId is string && data.projectId.size() > 0 &&
-             data.ownerId is string && data.ownerId.size() > 0 &&
+             data.projectId is string && data.projectId.size() > 0 && data.projectId.size() <= 100 &&
+             data.ownerId is string && data.ownerId.size() > 0 && data.ownerId.size() <= 128 &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidLedgerEntry(data) {
+      return hasOnlyAllowedFields(['id', 'blockHeight', 'hash', 'previousHash', 'timestamp', 'node', 'vessel', 'eventType', 'title', 'details', 'coherence', 'entropy', 'signature', 'ownerId', 'createdAt']) &&
+             hasRequiredFields(['id', 'blockHeight', 'hash', 'previousHash', 'timestamp', 'node', 'vessel', 'eventType', 'title', 'details', 'coherence', 'entropy', 'signature', 'ownerId', 'createdAt']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() <= 64 &&
+             data.blockHeight is int && data.blockHeight > 0 &&
+             data.hash is string && data.hash.size() > 0 && data.hash.size() <= 128 &&
+             data.previousHash is string && data.previousHash.size() > 0 && data.previousHash.size() <= 128 &&
+             data.timestamp is string && data.timestamp.size() > 0 && data.timestamp.size() <= 64 &&
+             data.node in ['Re-Ality', 'Arcade City', 'Sky Metropolis', 'Patriarch Council', 'Sovereign Operator'] &&
+             data.vessel in ['Sage', 'Architect', 'Sentinel', 'Weaver', 'Oracle', 'Muse', 'Artisan', 'Scribe', 'Daystrom', 'Genesis'] &&
+             data.eventType in ['Governance Directive', 'Mint Log', 'Telemetry Pulse', 'Arbitration', 'Collective Query', 'Economic Feedback', 'Ecosystem Sync'] &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+             data.details is string && data.details.size() <= 5000 &&
+             data.coherence is number && data.coherence >= 0 && data.coherence <= 100 &&
+             data.entropy is number && data.entropy >= 0 && data.entropy <= 100 &&
+             data.signature is string && data.signature.size() > 0 && data.signature.size() <= 128 &&
+             data.ownerId is string && data.ownerId.size() > 0 && data.ownerId.size() <= 128 &&
              data.createdAt is timestamp;
     }
 
     // ===============================================================
     // Rules
     // ===============================================================
+
+    // ---------------------------------------------------------------
+    // Users Profile Collection
+    // Enforces the 8 Pillars of Profile Security (Pillar 1: Identity Provenance & Binding)
+    // ---------------------------------------------------------------
     match /users/{userId} {
-      allow read: if isOwner(userId) || isAdmin();
-      allow create: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data) &&
+      // Attribute Read Access: Owner or Admin only (PII Protection & Zero-Trust)
+      allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
+
+      // Profile Provisioning:
+      // Cryptographic identity provenance ensures caller can only create their own profile (isOwner)
+      // and binds request.resource.data.email strictly to request.auth.token.email.
+      // Non-admins cannot grant themselves privileged roles.
+      allow create: if isAuthenticated() &&
+                    isOwner(userId) &&
+                    isValidUser(request.resource.data) &&
+                    request.auth.token.email != null &&
+                    request.resource.data.email == request.auth.token.email &&
                     (request.resource.data.role == 'user' || isAdmin());
-      allow update: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data) &&
+
+      // Profile Attribute Mutation:
+      // Only authenticated owners and admins can update profile attributes.
+      // createdAt is immutable. Email cannot be spoofed to match another user.
+      // Non-admins cannot escalate or mutate their role.
+      allow update: if isAuthenticated() &&
+                    (isOwner(userId) || isAdmin()) &&
+                    isValidUser(request.resource.data) &&
                     request.resource.data.createdAt == resource.data.createdAt &&
+                    (request.resource.data.email == resource.data.email ||
+                     (isOwner(userId) && request.resource.data.email == request.auth.token.email) ||
+                     isAdmin()) &&
                     (request.resource.data.role == resource.data.role || isAdmin());
+
+      // Profile Purging: Admin-only lifecycle control
       allow delete: if isAdmin();
     }
 
+    // ---------------------------------------------------------------
+    // Projects Collection
+    // ---------------------------------------------------------------
     match /projects/{projectId} {
       allow read: if isAuthenticated() && (resource.data.ownerId == request.auth.uid || isAdmin());
-      allow create: if isAuthenticated() && isValidProject(request.resource.data) &&
+      allow create: if isAuthenticated() &&
+                    isValidProject(request.resource.data) &&
                     request.resource.data.ownerId == request.auth.uid;
-      allow update: if isAuthenticated() && isDocOwner() && isValidProject(request.resource.data) &&
+      allow update: if isAuthenticated() &&
+                    (isDocOwner() || isAdmin()) &&
+                    isValidProject(request.resource.data) &&
                     request.resource.data.ownerId == resource.data.ownerId &&
                     request.resource.data.createdAt == resource.data.createdAt;
       allow delete: if isAuthenticated() && (isDocOwner() || isAdmin());
     }
 
+    // ---------------------------------------------------------------
+    // Vessels Collection
+    // ---------------------------------------------------------------
     match /vessels/{vesselId} {
       allow read: if isAuthenticated() && (resource.data.ownerId == request.auth.uid || isAdmin());
-      allow create: if isAuthenticated() && isValidVessel(request.resource.data) &&
+      allow create: if isAuthenticated() &&
+                    isValidVessel(request.resource.data) &&
                     request.resource.data.ownerId == request.auth.uid;
-      allow update: if isAuthenticated() && isDocOwner() && isValidVessel(request.resource.data) &&
+      allow update: if isAuthenticated() &&
+                    (isDocOwner() || isAdmin()) &&
+                    isValidVessel(request.resource.data) &&
                     request.resource.data.ownerId == resource.data.ownerId &&
                     request.resource.data.createdAt == resource.data.createdAt &&
                     request.resource.data.projectId == resource.data.projectId;
       allow delete: if isAuthenticated() && (isDocOwner() || isAdmin());
+    }
+
+    // ---------------------------------------------------------------
+    // Ledger Entries Collection (Pillar 4: Immutable Audit Logging)
+    // ---------------------------------------------------------------
+    match /ledger_entries/{entryId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() &&
+                    isValidLedgerEntry(request.resource.data) &&
+                    request.resource.data.ownerId == request.auth.uid;
+      allow update: if false; // Cryptographic audit blocks are strictly append-only
+      allow delete: if isAdmin();
     }
   }
 }
