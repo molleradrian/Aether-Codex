@@ -3,9 +3,11 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 
-if (import.meta.dirname && process.cwd() !== import.meta.dirname) {
+const appDir = typeof __dirname !== 'undefined' ? __dirname : ((import.meta as any)?.dirname || process.cwd());
+
+if (appDir && process.cwd() !== appDir) {
   try {
-    process.chdir(import.meta.dirname);
+    process.chdir(appDir);
   } catch (err) {
     // Ignore chdir error
   }
@@ -113,7 +115,7 @@ async function startServer() {
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
-    const rootDir = import.meta.dirname || process.cwd();
+    const rootDir = appDir || process.cwd();
     const vite = await createViteServer({
       root: rootDir,
       server: { middlewareMode: true },
@@ -121,7 +123,7 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
+    const distPath = path.join(appDir, 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
