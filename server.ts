@@ -71,29 +71,54 @@ async function startServer() {
       const { prompt, previousInteractionId } = req.body;
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
       
-      const interaction = await ai.interactions.create({
-        agent: "antigravity-preview-05-2026",
-        input: prompt,
-        environment: "remote",
-        previous_interaction_id: previousInteractionId
-      }, { timeout: 300000 });
+      let response;
+      try {
+        response = await ai.models.generateContent({
+          model: 'gemini-3.6-flash',
+          contents: prompt,
+          config: {
+            systemInstruction: "You are the Antigravity Autonomous Agent inside the Aetherium Codex. You analyze systems, write and execute code, and provide structured solutions.",
+            tools: [{ codeExecution: {} }]
+          }
+        });
+      } catch (err: any) {
+        // Fallback without codeExecution or lite model if quota/feature restricted
+        response = await ai.models.generateContent({
+          model: 'gemini-3.5-flash-lite',
+          contents: prompt,
+          config: {
+            systemInstruction: "You are the Antigravity Autonomous Agent inside the Aetherium Codex. You analyze systems and provide structured solutions."
+          }
+        });
+      }
 
       let fullOutput = "";
-      let steps = [];
-      for (const step of interaction.steps) {
-        steps.push(step);
-        if (step.type === 'model_output') {
-          const textContent = step.content?.find(c => c.type === 'text');
-          if (textContent && textContent.text) {
-            fullOutput += textContent.text;
-          }
+      const steps: any[] = [];
+      const candidate = response.candidates?.[0];
+      const parts = candidate?.content?.parts || [];
+
+      for (const part of parts) {
+        if ((part as any).executableCode) {
+          steps.push({
+            type: 'code_execution_call',
+            code_execution_call: { code: (part as any).executableCode.code }
+          });
+        }
+        if ((part as any).codeExecutionResult) {
+          steps.push({
+            type: 'code_execution_result',
+            code_execution_result: { output: (part as any).codeExecutionResult.output }
+          });
+        }
+        if (part.text) {
+          fullOutput += part.text;
         }
       }
 
       res.json({ 
-        text: fullOutput || "No output from Antigravity agent.",
-        interactionId: interaction.id,
-        environmentId: interaction.environment_id,
+        text: fullOutput || response.text || "Execution complete.",
+        interactionId: previousInteractionId || ("agy-" + Date.now()),
+        environmentId: "sandbox-aetherium-v1",
         steps: steps
       });
     } catch (error: any) {

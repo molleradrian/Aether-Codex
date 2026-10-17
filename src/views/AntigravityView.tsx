@@ -75,27 +75,46 @@ export default function AntigravityTerminal() {
                   <div className="whitespace-pre-wrap">{msg.content}</div>
                 ) : (
                   <div className="space-y-4">
-                    {/* Render tool calls if available */}
+                    {/* Render tool calls and thoughts if available */}
                     {msg.steps && msg.steps.map((step: any, stepIdx: number) => {
-                      if (step.type === 'code_execution_call') {
+                      if (step.type === 'thought') {
+                        const thoughtText = step.summary?.map((s: any) => s.text).join('') || step.thought || '';
+                        if (!thoughtText.trim()) return null;
+                        return (
+                          <div key={stepIdx} className="bg-purple-950/20 rounded border border-purple-500/30 p-2.5 text-xs text-purple-300">
+                            <div className="font-bold border-b border-purple-500/20 pb-1 mb-1 flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider text-purple-400">
+                              <span>🧠 Neural Reasoning Trace</span>
+                            </div>
+                            <div className="whitespace-pre-wrap font-sans text-xs opacity-90">{thoughtText}</div>
+                          </div>
+                        );
+                      } else if (step.type === 'code_execution_call') {
+                        const code = step.code_execution_call?.code || step.arguments?.code || '';
                         return (
                           <div key={stepIdx} className="bg-black/60 rounded border border-[#ff9900]/30 p-2 text-xs font-mono text-[#ff9900]">
-                            <div className="font-bold border-b border-[#ff9900]/30 pb-1 mb-1">Code Execution</div>
-                            <pre className="overflow-x-auto p-1">{step.code_execution_call?.code}</pre>
+                            <div className="font-bold border-b border-[#ff9900]/30 pb-1 mb-1 flex items-center gap-1.5">
+                              <span>⚡ Code Execution Sandbox</span>
+                            </div>
+                            <pre className="overflow-x-auto p-1 text-amber-200">{code}</pre>
                           </div>
                         );
                       } else if (step.type === 'code_execution_result') {
+                        const output = step.code_execution_result?.output || step.result || '';
                         return (
                           <div key={stepIdx} className="bg-black/60 rounded border border-green-500/30 p-2 text-xs font-mono text-green-400">
-                            <div className="font-bold border-b border-green-500/30 pb-1 mb-1">Execution Result</div>
-                            <pre className="overflow-x-auto p-1">{step.code_execution_result?.output}</pre>
+                            <div className="font-bold border-b border-green-500/30 pb-1 mb-1 flex items-center gap-1.5">
+                              <span>✓ Sandbox Output</span>
+                            </div>
+                            <pre className="overflow-x-auto p-1">{output}</pre>
                           </div>
                         );
                       } else if (step.type === 'function_call') {
-                         return (
+                        const toolName = step.function_call?.name || step.name || 'Tool Call';
+                        const args = step.function_call?.arguments || step.arguments || {};
+                        return (
                           <div key={stepIdx} className="bg-black/60 rounded border border-blue-500/30 p-2 text-xs font-mono text-blue-400">
-                            <div className="font-bold border-b border-blue-500/30 pb-1 mb-1">Tool Call: {step.function_call?.name}</div>
-                            <pre className="overflow-x-auto p-1">{JSON.stringify(step.function_call?.arguments, null, 2)}</pre>
+                            <div className="font-bold border-b border-blue-500/30 pb-1 mb-1">Tool Call: {toolName}</div>
+                            <pre className="overflow-x-auto p-1">{JSON.stringify(args, null, 2)}</pre>
                           </div>
                         );
                       }
