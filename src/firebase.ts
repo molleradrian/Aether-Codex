@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
@@ -11,6 +11,22 @@ let cachedAccessToken: string | null = null;
 
 export const getAccessToken = (): string | null => {
   return cachedAccessToken;
+};
+
+export const checkRedirectAuth = async () => {
+  try {
+    const result = await getRedirectResult(auth);
+    if (result) {
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (credential?.accessToken) {
+        cachedAccessToken = credential.accessToken;
+      }
+      return result.user;
+    }
+  } catch (error) {
+    console.warn("Redirect sign-in check:", error);
+  }
+  return null;
 };
 
 export const loginWithGoogle = async () => {
@@ -26,7 +42,17 @@ export const loginWithGoogle = async () => {
       cachedAccessToken = credential.accessToken;
     }
     return result.user;
-  } catch (error) {
+  } catch (error: any) {
+    // Fall back to redirect if popup is blocked (common on mobile browsers)
+    if (error?.code === 'auth/popup-blocked' || error?.code === 'auth/popup-closed-by-user' || /Mobi|Android/i.test(navigator.userAgent)) {
+      try {
+        await signInWithRedirect(auth, provider);
+        return;
+      } catch (redirectErr) {
+        console.error("Error signing in with redirect", redirectErr);
+        throw redirectErr;
+      }
+    }
     console.error("Error signing in with Google", error);
     throw error;
   }

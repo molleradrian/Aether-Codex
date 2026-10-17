@@ -6,7 +6,7 @@
 import { BrowserRouter as Router, Routes, Route, Link, useParams } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { auth, loginWithGoogle, logout } from './firebase';
+import { auth, loginWithGoogle, logout, checkRedirectAuth } from './firebase';
 import { getAllChapters, getChapterBySlug } from './lib/codex';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -237,12 +237,31 @@ function ChapterRoute() {
   return <ChapterView slug={slug || ''} />;
 }
 
+function ProtectedView({ user, children }: { user: User | null; children: React.ReactNode }) {
+  if (!user) {
+    return (
+      <div className="max-w-md mx-auto mt-16 text-center glass-panel p-8">
+        <h2 className="text-2xl font-bold text-[#ff9900] mb-4">Operator Clearance Required</h2>
+        <p className="text-[#9ca3af] mb-8 text-sm">This console interfaces directly with live sovereign node infrastructure and requires authenticated credentials.</p>
+        <button 
+          onClick={loginWithGoogle}
+          className="w-full bg-[#00f0ff] text-black px-4 py-3 rounded-xl font-bold hover:bg-[#00c0cc] transition-colors text-sm uppercase tracking-wider"
+        >
+          Authenticate Sovereign Node
+        </button>
+      </div>
+    );
+  }
+  return <>{children}</>;
+}
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   useEffect(() => {
+    checkRedirectAuth();
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setAuthReady(true);
@@ -390,32 +409,18 @@ export default function App() {
           )}
         </nav>
 
-        {user ? (
-          <>
-            <Routes>
-              <Route path="/" element={<NexusHome />} />
-              <Route path="/chapter/:slug" element={<ChapterRoute />} />
-              <Route path="/ecosystem" element={<EcosystemView />} />
-              <Route path="/promo" element={<MediaGalleryView />} />
-              <Route path="/antigravity" element={<div className="mb-20"><AntigravityView /></div>} />
-              <Route path="/ledger" element={<LedgerView />} />
-              <Route path="/projects" element={<ProjectsView />} />
-              <Route path="/drive" element={<DriveView />} />
-            </Routes>
-            <ChatInterface />
-          </>
-        ) : (
-          <div className="max-w-md mx-auto mt-20 text-center glass-panel p-8">
-            <h2 className="text-2xl font-bold text-[#ff9900] mb-4">Access Restricted</h2>
-            <p className="text-[#9ca3af] mb-8">You must authenticate to access the Aetherium Nexus and interact with the Sovereign Operator's tools.</p>
-            <button 
-              onClick={loginWithGoogle}
-              className="w-full bg-[#00f0ff] text-black px-4 py-3 rounded font-bold hover:bg-[#00c0cc] transition-colors text-lg"
-            >
-              Initialize Connection
-            </button>
-          </div>
-        )}
+        <Routes>
+          <Route path="/" element={<NexusHome />} />
+          <Route path="/chapter/:slug" element={<ChapterRoute />} />
+          <Route path="/ecosystem" element={<EcosystemView />} />
+          <Route path="/promo" element={<MediaGalleryView />} />
+          <Route path="/antigravity" element={<ProtectedView user={user}><div className="mb-20"><AntigravityView /></div></ProtectedView>} />
+          <Route path="/ledger" element={<ProtectedView user={user}><LedgerView /></ProtectedView>} />
+          <Route path="/projects" element={<ProtectedView user={user}><ProjectsView /></ProtectedView>} />
+          <Route path="/drive" element={<ProtectedView user={user}><DriveView /></ProtectedView>} />
+        </Routes>
+
+        <ChatInterface />
       </div>
     </Router>
   );
