@@ -1,16 +1,20 @@
 /**
  * Reader Suite View: High-Fidelity Holographic Codex Folio
  * Transforms canonical reading into an illuminated, physical-holographic sci-fi tome.
- * Features gilded foil borders, cybernetic corner reticles, holographic watermarks,
- * scroll-spy TOC, reading progress, focus audio flow, themes, font sizing, and Vessel Logos AI queries.
+ * Features:
+ * - Read Aloud with synchronized live page tracking, glowing paragraph highlight & auto-scroll
+ * - 1.618 Hz Golden Ratio Theta Wave procedural WebAudio flow
+ * - Gilded foil borders, cybernetic corner reticles, holographic watermarks
+ * - Scroll-spy Table of Contents, reading progress, themes, font sizing, and Vessel Logos AI queries
  */
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { getChapterBySlug, getAllChapters, CodexBook } from '../lib/codex';
 import { startFocusAudio, stopFocusAudio, isFocusAudioPlaying } from '../lib/audioFocus';
+import { readAloudEngine, ReadAloudState } from '../lib/readAloud';
 import { 
   ArrowLeft, 
   Volume2, 
@@ -27,8 +31,17 @@ import {
   Loader2,
   Copy,
   Columns,
-  Maximize2,
-  Compass
+  Compass,
+  Play,
+  Pause,
+  Square,
+  SkipBack,
+  SkipForward,
+  Headphones,
+  Radio,
+  Lock,
+  Unlock,
+  X
 } from 'lucide-react';
 
 type ReaderTheme = 'cyberpunk' | 'parchment' | 'phosphor' | 'oled';
@@ -79,6 +92,7 @@ export default function ReaderSuiteView() {
   const { slug } = useParams<{ slug: string }>();
   const chapter = useMemo(() => getChapterBySlug(slug || ''), [slug]);
   const allBooks = useMemo(() => getAllChapters(), []);
+  const articleRef = useRef<HTMLElement>(null);
 
   // Current book index for pagination
   const currentIndex = useMemo(() => {
@@ -98,6 +112,14 @@ export default function ReaderSuiteView() {
   const [isHoloGlowActive, setIsHoloGlowActive] = useState(true);
   const [isCopied, setIsCopied] = useState(false);
 
+  // Read Aloud State
+  const [readAloudState, setReadAloudState] = useState<ReadAloudState>('idle');
+  const [activeSpokenIndex, setActiveSpokenIndex] = useState<number>(-1);
+  const [totalBlocks, setTotalBlocks] = useState(0);
+  const [speechRate, setSpeechRate] = useState<number>(1.0);
+  const [autoScrollFollow, setAutoScrollFollow] = useState(true);
+  const [showReadAloudDock, setShowReadAloudDock] = useState(false);
+
   // AI Dialogue State (Ask Logos)
   const [aiQuestion, setAiQuestion] = useState('');
   const [aiAnswer, setAiAnswer] = useState<string | null>(null);
@@ -107,6 +129,7 @@ export default function ReaderSuiteView() {
   useEffect(() => {
     return () => {
       stopFocusAudio();
+      readAloudEngine.stop();
     };
   }, []);
 
@@ -116,6 +139,61 @@ export default function ReaderSuiteView() {
       document.documentElement.style.setProperty('--book-accent', chapter.accentColor);
       document.documentElement.style.setProperty('--book-glow', chapter.glowColor);
     }
+  }, [chapter]);
+
+  // Index readable elements in the DOM for synchronized Read Aloud & Page Tracking
+  useEffect(() => {
+    if (!chapter || !articleRef.current) return;
+
+    // Small delay to allow ReactMarkdown to finish DOM rendering
+    const timer = setTimeout(() => {
+      if (!articleRef.current) return;
+
+      const elements = articleRef.current.querySelectorAll(
+        '.markdown-body > p, .markdown-body > h1, .markdown-body > h2, .markdown-body > h3, .markdown-body > blockquote, .markdown-body > ul, .markdown-body > ol'
+      );
+
+      const textBlocks: string[] = [];
+      elements.forEach((el, index) => {
+        el.id = `read-block-${index}`;
+        el.setAttribute('data-read-index', String(index));
+        el.setAttribute('title', 'Click to read aloud from here');
+        el.classList.add('cursor-pointer', 'transition-all', 'duration-300');
+        const text = (el as HTMLElement).innerText?.trim() || '';
+        textBlocks.push(text);
+      });
+
+      setTotalBlocks(textBlocks.length);
+
+      readAloudEngine.setBlocks(textBlocks, {
+        onBlockChange: (index) => {
+          setActiveSpokenIndex(index);
+          elements.forEach((el, idx) => {
+            if (idx === index) {
+              el.classList.add('spoken-block-active');
+            } else {
+              el.classList.remove('spoken-block-active');
+            }
+          });
+        },
+        onStateChange: (state) => {
+          setReadAloudState(state);
+          if (state !== 'idle') {
+            setShowReadAloudDock(true);
+          } else {
+            elements.forEach((el) => el.classList.remove('spoken-block-active'));
+            setActiveSpokenIndex(-1);
+          }
+        },
+        onFinish: () => {
+          setReadAloudState('idle');
+          elements.forEach((el) => el.classList.remove('spoken-block-active'));
+          setActiveSpokenIndex(-1);
+        }
+      });
+    }, 100);
+
+    return () => clearTimeout(timer);
   }, [chapter]);
 
   // Scroll listener for progress and heading detection
@@ -148,7 +226,7 @@ export default function ReaderSuiteView() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, [chapter]);
 
-  // Audio Toggle
+  // Ambient Focus Audio Toggle
   const toggleFocusAudio = () => {
     if (isAudioActive) {
       stopFocusAudio();
@@ -156,6 +234,35 @@ export default function ReaderSuiteView() {
     } else {
       const ok = startFocusAudio(0.18);
       if (ok) setIsAudioActive(true);
+    }
+  };
+
+  // Read Aloud Controls
+  const toggleReadAloud = () => {
+    setShowReadAloudDock(true);
+    readAloudEngine.togglePlay();
+  };
+
+  const handleRateChange = (newRate: number) => {
+    setSpeechRate(newRate);
+    readAloudEngine.setRate(newRate);
+  };
+
+  const toggleAutoScroll = () => {
+    const next = !autoScrollFollow;
+    setAutoScrollFollow(next);
+    readAloudEngine.setAutoScroll(next);
+  };
+
+  // Click on any paragraph to read aloud from that exact spot
+  const handleArticleClick = (e: React.MouseEvent) => {
+    const target = (e.target as HTMLElement).closest('[data-read-index]');
+    if (target) {
+      const idx = Number(target.getAttribute('data-read-index'));
+      if (!isNaN(idx)) {
+        setShowReadAloudDock(true);
+        readAloudEngine.playFrom(idx);
+      }
     }
   };
 
@@ -252,7 +359,7 @@ export default function ReaderSuiteView() {
   const minutesRemaining = Math.max(1, Math.ceil(chapter.readingTimeMinutes * (1 - scrollProgress / 100)));
 
   return (
-    <div className={`min-h-screen transition-colors duration-300 ${themeClasses.bg} pb-32 relative`}>
+    <div className={`min-h-screen transition-colors duration-300 ${themeClasses.bg} pb-36 relative`}>
       {/* Top Holographic Reading Progress Ribbon (Fixed) */}
       <div className="fixed top-0 left-0 right-0 h-1.5 bg-black/50 z-50 overflow-hidden">
         <div 
@@ -293,46 +400,69 @@ export default function ReaderSuiteView() {
               >
                 {chapter.bookNumber}
               </span>
-              <span className="font-semibold text-xs md:text-sm text-[#e0e6ed] truncate max-w-[150px] md:max-w-xs">
+              <span className="font-semibold text-xs md:text-sm text-[#e0e6ed] truncate max-w-[140px] md:max-w-xs">
                 {chapter.title}
               </span>
             </div>
           </div>
 
-          {/* Right: Controls (Progress, Audio, Hologram, Font, Theme) */}
+          {/* Right: Controls (Read Aloud, Audio, Hologram, Font, Theme) */}
           <div className="flex items-center gap-2 sm:gap-3">
-            {/* Reading Time Left */}
-            <div className="hidden md:flex items-center gap-1.5 text-xs font-mono text-[#9ca3af]">
-              <Clock className="w-3.5 h-3.5 text-[#00f0ff]" />
-              <span>{minutesRemaining}m left</span>
-            </div>
+            {/* READ ALOUD BUTTON WITH PAGE TRACKING */}
+            <button
+              onClick={toggleReadAloud}
+              className={`px-3 py-1.5 rounded-lg border text-xs font-mono font-bold flex items-center gap-2 transition-all ${
+                readAloudState === 'playing'
+                  ? 'bg-[#00f0ff] text-black border-[#00f0ff] shadow-[0_0_15px_rgba(0,240,255,0.5)]'
+                  : readAloudState === 'paused'
+                  ? 'bg-[#ff9900] text-black border-[#ff9900]'
+                  : 'bg-white/5 border-white/10 text-[#00f0ff] hover:bg-[#00f0ff]/10 hover:border-[#00f0ff]/50'
+              }`}
+              title="Activate Holographic Read Aloud with synchronized page tracking"
+            >
+              {readAloudState === 'playing' ? (
+                <>
+                  <div className="flex items-end gap-0.5 h-3">
+                    <span className="w-0.5 bg-black rounded-full eq-bar-1"></span>
+                    <span className="w-0.5 bg-black rounded-full eq-bar-2"></span>
+                    <span className="w-0.5 bg-black rounded-full eq-bar-3"></span>
+                    <span className="w-0.5 bg-black rounded-full eq-bar-4"></span>
+                  </div>
+                  <span>Reading Aloud</span>
+                </>
+              ) : (
+                <>
+                  <Headphones className="w-3.5 h-3.5 text-[#00f0ff]" />
+                  <span>Read Aloud</span>
+                </>
+              )}
+            </button>
 
             {/* Ambient Focus Audio Synthesizer Toggle */}
             <button
               onClick={toggleFocusAudio}
               className={`p-1.5 rounded-lg border text-xs font-mono flex items-center gap-1.5 transition-all ${
                 isAudioActive
-                  ? 'bg-[#00f0ff] text-black border-[#00f0ff] shadow-[0_0_12px_rgba(0,240,255,0.4)]'
+                  ? 'bg-[#a855f7] text-white border-[#a855f7] shadow-[0_0_12px_rgba(168,85,247,0.4)]'
                   : 'bg-white/5 border-white/10 text-[#9ca3af] hover:text-white'
               }`}
               title={isAudioActive ? 'Mute 1.618 Hz Theta Wave Drone' : 'Activate 1.618 Hz Ambient Focus Drone'}
             >
               {isAudioActive ? <Volume2 className="w-3.5 h-3.5 animate-pulse" /> : <VolumeX className="w-3.5 h-3.5" />}
-              <span className="hidden lg:inline text-[11px]">{isAudioActive ? '1.618 Hz' : 'Audio'}</span>
+              <span className="hidden xl:inline text-[11px]">{isAudioActive ? '1.618 Hz' : 'Drone'}</span>
             </button>
 
             {/* Holographic Glow Toggle */}
             <button
               onClick={() => setIsHoloGlowActive(!isHoloGlowActive)}
-              className={`p-1.5 rounded-lg border text-xs font-mono flex items-center gap-1.5 transition-all ${
+              className={`p-1.5 rounded-lg border text-xs font-mono hidden sm:flex items-center gap-1.5 transition-all ${
                 isHoloGlowActive
-                  ? 'bg-[#a855f7]/20 border-[#a855f7] text-[#a855f7] shadow-[0_0_10px_rgba(168,85,247,0.3)]'
+                  ? 'bg-[#00f0ff]/20 border-[#00f0ff] text-[#00f0ff]'
                   : 'bg-white/5 border-white/10 text-[#6b7280]'
               }`}
               title="Toggle Holographic Foil Edge Shimmer"
             >
               <Sparkles className="w-3.5 h-3.5" />
-              <span className="hidden xl:inline text-[11px]">Holo Foil</span>
             </button>
 
             {/* Dual / Single Column Toggle */}
@@ -458,8 +588,8 @@ export default function ReaderSuiteView() {
                 <span className="text-[#e0e6ed]">{chapter.wordCount.toLocaleString()}</span>
               </div>
               <div className="flex justify-between">
-                <span>CANON TIER:</span>
-                <span className="text-[#00f0ff]">{chapter.category}</span>
+                <span>SPEECH BLOCKS:</span>
+                <span className="text-[#00f0ff]">{totalBlocks} Paragraphs</span>
               </div>
               <div className="flex justify-between">
                 <span>AUTHOR:</span>
@@ -473,6 +603,8 @@ export default function ReaderSuiteView() {
         <main className="lg:col-span-9 max-w-4xl mx-auto w-full">
           {/* THE HOLOGRAPHIC TOME FOLIO PAGE */}
           <article 
+            ref={articleRef}
+            onClick={handleArticleClick}
             className={`holographic-tome-page ${isHoloGlowActive ? 'holo-active' : ''} p-6 sm:p-10 md:p-14 relative overflow-hidden transition-all duration-300`}
             style={{
               '--book-accent': chapter.accentColor,
@@ -482,7 +614,7 @@ export default function ReaderSuiteView() {
             {/* Gilded Spine Left Edge Band */}
             <div className="holographic-spine-band" />
 
-            {/* Cybernetic Brass / Neon Corner Reticles (Top-Left, Top-Right, Bottom-Left, Bottom-Right) */}
+            {/* Cybernetic Brass / Neon Corner Reticles */}
             <svg className="absolute top-3 left-3 w-5 h-5 pointer-events-none opacity-70" viewBox="0 0 24 24" fill="none">
               <path d="M2 9V2H9" stroke={chapter.accentColor} strokeWidth="2" strokeLinecap="square" />
             </svg>
@@ -566,13 +698,13 @@ export default function ReaderSuiteView() {
                   <span className="text-[#10b981] font-bold">AUTHORITATIVE CANON</span>
                 </div>
                 <div>
-                  <span className="text-[#6b7280] block text-[10px]">COORDINATE ANCHOR</span>
-                  <span className="text-[#00f0ff]">ESP32_01 // 1.618 Hz</span>
+                  <span className="text-[#6b7280] block text-[10px]">SPEECH INTERFACE</span>
+                  <span className="text-[#00f0ff]">TTS SYNCHRONIZED</span>
                 </div>
               </div>
             </header>
 
-            {/* Markdown Manuscript Body */}
+            {/* Markdown Manuscript Body (Indexed for Read Aloud & Page Tracking) */}
             <div className={`markdown-body holographic-scanlines ${fontSizeClasses} ${layoutMode === 'dual' ? 'md:columns-2 md:gap-10' : ''}`}>
               <ReactMarkdown 
                 remarkPlugins={[remarkGfm]}
@@ -738,6 +870,121 @@ export default function ReaderSuiteView() {
           </div>
         </main>
       </div>
+
+      {/* FLOATING HOLOGRAPHIC READ ALOUD CONTROLLER DOCK (WITH SYNCHRONIZED PAGE TRACKING) */}
+      {showReadAloudDock && (
+        <aside 
+          aria-label="Read Aloud Controller"
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-[95%] max-w-xl animate-fadeIn"
+        >
+          <div className="glass-panel p-3.5 md:p-4 rounded-2xl border border-[#00f0ff]/50 shadow-[0_10px_40px_rgba(0,0,0,0.9)] bg-gradient-to-r from-[#0c141e]/98 via-[#080d14]/98 to-[#060a10]/98 backdrop-blur-xl">
+            {/* Top Row: Equalizer + Status + Close */}
+            <div className="flex items-center justify-between gap-3 mb-3 pb-2 border-b border-white/10">
+              <div className="flex items-center gap-2">
+                {/* Equalizer animation */}
+                <div className="flex items-end gap-0.5 h-4 px-1.5 py-0.5 rounded bg-black/50 border border-white/10">
+                  <span className={`w-1 bg-[#00f0ff] rounded-full ${readAloudState === 'playing' ? 'eq-bar-1' : 'h-1'}`}></span>
+                  <span className={`w-1 bg-[#00f0ff] rounded-full ${readAloudState === 'playing' ? 'eq-bar-2' : 'h-2'}`}></span>
+                  <span className={`w-1 bg-[#00f0ff] rounded-full ${readAloudState === 'playing' ? 'eq-bar-3' : 'h-1'}`}></span>
+                  <span className={`w-1 bg-[#00f0ff] rounded-full ${readAloudState === 'playing' ? 'eq-bar-4' : 'h-2'}`}></span>
+                </div>
+
+                <div>
+                  <div className="text-xs font-mono font-bold text-white flex items-center gap-1.5">
+                    <span>Holographic Read Aloud</span>
+                    <span className="text-[10px] text-[#00f0ff] font-normal uppercase">
+                      ({readAloudState})
+                    </span>
+                  </div>
+                  <div className="text-[11px] font-mono text-[#9ca3af]">
+                    {activeSpokenIndex >= 0 ? `Paragraph ${activeSpokenIndex + 1} of ${totalBlocks}` : `Ready (${totalBlocks} blocks)`}
+                  </div>
+                </div>
+              </div>
+
+              {/* Close Dock Button */}
+              <button 
+                onClick={() => {
+                  readAloudEngine.stop();
+                  setShowReadAloudDock(false);
+                }}
+                className="p-1 rounded-lg hover:bg-white/10 text-[#9ca3af] hover:text-white transition-colors"
+                title="Stop and Close Read Aloud"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Bottom Controls Row: Playback Buttons + Speed + Auto-Scroll */}
+            <div className="flex flex-wrap items-center justify-between gap-3 text-xs font-mono">
+              {/* Playback Transport Buttons */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => readAloudEngine.previous()}
+                  className="p-2 rounded-lg bg-white/5 hover:bg-white/15 text-white transition-colors"
+                  title="Previous Paragraph"
+                >
+                  <SkipBack className="w-4 h-4" />
+                </button>
+
+                <button
+                  onClick={() => readAloudEngine.togglePlay()}
+                  className="px-4 py-2 rounded-xl bg-[#00f0ff] text-black font-bold hover:bg-[#00c0cc] transition-colors flex items-center gap-1.5 shadow-[0_0_12px_rgba(0,240,255,0.4)]"
+                  title={readAloudState === 'playing' ? 'Pause Speech' : 'Play Speech'}
+                >
+                  {readAloudState === 'playing' ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                  <span>{readAloudState === 'playing' ? 'Pause' : 'Play'}</span>
+                </button>
+
+                <button
+                  onClick={() => readAloudEngine.next()}
+                  className="p-2 rounded-lg bg-white/5 hover:bg-white/15 text-white transition-colors"
+                  title="Next Paragraph"
+                >
+                  <SkipForward className="w-4 h-4" />
+                </button>
+
+                <button
+                  onClick={() => readAloudEngine.stop()}
+                  className="p-2 rounded-lg bg-white/5 hover:bg-red-500/20 text-[#ef4444] transition-colors"
+                  title="Stop Speech"
+                >
+                  <Square className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Speed Rate Control */}
+              <div className="flex items-center gap-1 bg-black/40 p-1 rounded-lg border border-white/10">
+                {[0.8, 1.0, 1.25, 1.5].map((rate) => (
+                  <button
+                    key={rate}
+                    onClick={() => handleRateChange(rate)}
+                    className={`px-2 py-0.5 rounded text-[11px] font-bold transition-colors ${
+                      speechRate === rate ? 'bg-[#00f0ff] text-black' : 'text-[#6b7280] hover:text-white'
+                    }`}
+                  >
+                    {rate}x
+                  </button>
+                ))}
+              </div>
+
+              {/* Auto-Scroll Following Toggle */}
+              <button
+                onClick={toggleAutoScroll}
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-[11px] transition-all ${
+                  autoScrollFollow
+                    ? 'bg-[#10b981]/20 border-[#10b981] text-[#10b981]'
+                    : 'bg-white/5 border-white/10 text-[#6b7280]'
+                }`}
+                title="Toggle automatic viewport scrolling with speech position"
+              >
+                {autoScrollFollow ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+                <span className="hidden sm:inline">{autoScrollFollow ? 'Auto-Scroll ON' : 'Auto-Scroll OFF'}</span>
+              </button>
+            </div>
+          </div>
+        </aside>
+      )}
     </div>
   );
 }

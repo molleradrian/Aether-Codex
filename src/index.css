@@ -244,3 +244,34 @@ body {
   padding-left: 1.5em; 
   margin-bottom: 1.25em; 
 }
+
+/* Read Aloud Holographic Spoken Block Active State */
+@keyframes spoken-pulse {
+  0%, 100% {
+    box-shadow: 0 0 25px rgba(0, 240, 255, 0.25), inset 0 0 15px rgba(0, 240, 255, 0.08);
+  }
+  50% {
+    box-shadow: 0 0 35px rgba(0, 240, 255, 0.45), inset 0 0 22px rgba(0, 240, 255, 0.15);
+  }
+}
+
+.spoken-block-active {
+  background: linear-gradient(90deg, rgba(0, 240, 255, 0.14) 0%, rgba(255, 153, 0, 0.06) 60%, transparent 100%) !important;
+  border-left: 4px solid var(--book-accent, #00f0ff) !important;
+  padding-left: 1rem !important;
+  border-radius: 6px !important;
+  animation: spoken-pulse 2.5s infinite ease-in-out;
+  transform: translateX(4px);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Equalizer Bars for Read Aloud HUD */
+@keyframes eq-1 { 0%, 100% { height: 4px; } 50% { height: 16px; } }
+@keyframes eq-2 { 0%, 100% { height: 16px; } 50% { height: 6px; } }
+@keyframes eq-3 { 0%, 100% { height: 8px; } 50% { height: 18px; } }
+@keyframes eq-4 { 0%, 100% { height: 14px; } 50% { height: 4px; } }
+
+.eq-bar-1 { animation: eq-1 0.75s ease-in-out infinite; }
+.eq-bar-2 { animation: eq-2 0.65s ease-in-out infinite; }
+.eq-bar-3 { animation: eq-3 0.85s ease-in-out infinite; }
+.eq-bar-4 { animation: eq-4 0.70s ease-in-out infinite; }
