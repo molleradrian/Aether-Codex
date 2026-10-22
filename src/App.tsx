@@ -3,15 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { BrowserRouter as Router, Routes, Route, Link, useParams } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { auth, loginWithGoogle, logout, checkRedirectAuth } from './firebase';
-import { getAllChapters, getChapterBySlug } from './lib/codex';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { askNexus } from './lib/gemini';
-import { Loader2, Send } from 'lucide-react';
+import DigitalLibraryView from './views/DigitalLibraryView';
+import ReaderSuiteView from './views/ReaderSuiteView';
 import ProjectsView from './views/ProjectsView';
 import DriveView from './views/DriveView';
 import LedgerView from './views/LedgerView';
@@ -19,70 +16,8 @@ import AntigravityView from './views/AntigravityView';
 import EcosystemView from './views/EcosystemView';
 import MediaGalleryView from './views/MediaGalleryView';
 import ChatInterface from './components/ChatInterface';
-import EmergenceVisualizer from './components/EmergenceVisualizer';
 import Footer from './components/Footer';
-import { Menu, X } from 'lucide-react';
-
-function NexusHome() {
-  const chapters = getAllChapters();
-
-  return (
-    <div className="max-w-4xl mx-auto">
-      <header className="mb-12 text-center">
-        <h1 className="text-4xl font-bold text-[#00f0ff] mb-4 tracking-widest uppercase">
-          Aetherium Nexus v1.0
-        </h1>
-        <p className="text-[#9ca3af]">Legacy for Language: The Aetherium Codex</p>
-      </header>
-
-      <EmergenceVisualizer />
-
-      <div className="grid gap-6 md:grid-cols-2">
-        {chapters.map((chapter) => (
-          <Link to={`/chapter/${chapter.slug}`} key={chapter.slug}>
-            <div className="glass-panel p-6 hover:border-[#00f0ff] transition-colors duration-300 cursor-pointer group h-full">
-              <h2 className="text-xl font-semibold text-[#e0e6ed] group-hover:text-[#00f0ff] transition-colors">
-                {chapter.title}
-              </h2>
-              <p className="text-sm text-[#6b7280] mt-2 font-mono">{chapter.slug}.md</p>
-            </div>
-          </Link>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ChapterView({ slug }: { slug: string }) {
-  const chapter = getChapterBySlug(slug);
-
-  if (!chapter) {
-    return <div className="text-center text-red-400 mt-20">Chapter not found in the Codex.</div>;
-  }
-
-  return (
-    <div className="max-w-4xl mx-auto">
-      <nav className="mb-8">
-        <Link to="/" className="text-[#00f0ff] hover:text-[#ff9900] transition-colors font-mono text-sm">
-          ← Return to Nexus
-        </Link>
-      </nav>
-
-      <article className="glass-panel p-8 md:p-12">
-        <div className="markdown-body">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-            {chapter.content}
-          </ReactMarkdown>
-        </div>
-      </article>
-    </div>
-  );
-}
-
-function ChapterRoute() {
-  const { slug } = useParams<{ slug: string }>();
-  return <ChapterView slug={slug || ''} />;
-}
+import { Menu, X, Library } from 'lucide-react';
 
 function ProtectedView({ user, children }: { user: User | null; children: React.ReactNode }) {
   if (!user) {
@@ -125,7 +60,7 @@ export default function App() {
   return (
     <Router>
       <div className="min-h-screen p-4 md:p-8">
-        <nav className="max-w-4xl mx-auto mb-8 md:mb-12 glass-panel px-6 py-4">
+        <nav className="max-w-5xl mx-auto mb-8 md:mb-12 glass-panel px-6 py-4">
           <div className="flex justify-between items-center">
             <div className="font-bold text-lg md:text-xl tracking-wider text-[#e0e6ed]">
               <Link to="/" onClick={closeMobileMenu}>AETHERIUM<span className="text-[#00f0ff]">_CODEX</span></Link>
@@ -133,6 +68,10 @@ export default function App() {
 
             {/* Desktop Navigation */}
             <div className="hidden lg:flex gap-4 items-center">
+              <Link to="/" className="text-sm text-[#00f0ff] hover:text-[#ff9900] transition-colors flex items-center gap-1.5 font-medium">
+                <Library className="w-4 h-4 text-[#00f0ff]" />
+                <span>Digital Library</span>
+              </Link>
               <Link to="/ecosystem" className="text-sm text-[#e0e6ed] hover:text-[#00f0ff] transition-colors flex items-center gap-1 font-medium">
                 <span>Ecosystem Hub</span>
               </Link>
@@ -200,6 +139,17 @@ export default function App() {
           {isMobileMenuOpen && (
             <div className="lg:hidden mt-4 pt-4 border-t border-[rgba(255,255,255,0.08)] flex flex-col gap-2">
               <Link 
+                to="/" 
+                onClick={closeMobileMenu}
+                className="text-sm text-[#00f0ff] hover:text-white py-2 px-3 rounded-lg hover:bg-[rgba(255,255,255,0.03)] transition-colors flex items-center justify-between font-semibold"
+              >
+                <div className="flex items-center gap-2">
+                  <Library className="w-4 h-4 text-[#00f0ff]" />
+                  <span>Digital Library</span>
+                </div>
+                <span className="text-xs text-[#00f0ff] font-mono">→</span>
+              </Link>
+              <Link 
                 to="/ecosystem" 
                 onClick={closeMobileMenu}
                 className="text-sm text-[#e0e6ed] hover:text-[#00f0ff] py-2 px-3 rounded-lg hover:bg-[rgba(255,255,255,0.03)] transition-colors flex items-center justify-between"
@@ -257,8 +207,10 @@ export default function App() {
         </nav>
 
         <Routes>
-          <Route path="/" element={<NexusHome />} />
-          <Route path="/chapter/:slug" element={<ChapterRoute />} />
+          <Route path="/" element={<DigitalLibraryView />} />
+          <Route path="/library" element={<DigitalLibraryView />} />
+          <Route path="/chapter/:slug" element={<ReaderSuiteView />} />
+          <Route path="/library/read/:slug" element={<ReaderSuiteView />} />
           <Route path="/ecosystem" element={<EcosystemView />} />
           <Route path="/promo" element={<MediaGalleryView />} />
           <Route path="/antigravity" element={<ProtectedView user={user}><div className="mb-20"><AntigravityView /></div></ProtectedView>} />
