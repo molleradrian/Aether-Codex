@@ -27,6 +27,16 @@ async function startServer() {
 
   app.use(express.json({ limit: "50mb" }));
 
+  // Liveness & Readiness Healthcheck for AWS ECS Fargate & ALB
+  app.get("/healthz", (req, res) => {
+    res.status(200).json({
+      status: "healthy",
+      service: "aether-codex",
+      node: "ESP32_01",
+      timestamp: new Date().toISOString()
+    });
+  });
+
   // API Routes
   app.post("/api/nexus", async (req, res) => {
     try {
