@@ -3,7 +3,9 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 
-const appDir = typeof __dirname !== 'undefined' ? __dirname : ((import.meta as any)?.dirname || process.cwd());
+const rawDir = typeof __dirname !== 'undefined' ? __dirname : ((import.meta as any)?.dirname || process.cwd());
+// In bundled dist/server.cjs, __dirname is the dist/ directory. Root is parent if basename is 'dist'.
+const appDir = path.basename(rawDir) === 'dist' ? path.resolve(rawDir, '..') : rawDir;
 
 if (appDir && process.cwd() !== appDir) {
   try {
